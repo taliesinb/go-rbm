@@ -1,4 +1,4 @@
-package main
+package rbm
 
 import "testing"
 import "reflect"
