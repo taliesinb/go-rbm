@@ -21,9 +21,13 @@ func MultiplyT(M, x, y []float64) {
 	}
 }
 
+func Logistic(x float64) float64{
+	return 1.0 / (1.0 + math.Exp(-x))
+}
+
 func Sample(V []float64, B []float64) {
 	for i, v := range V {
-		if rand.Float64() < 1.0 / (1.0 + math.Exp(-v)) {
+		if rand.Float64() < Logistic(v) {
 			B[i] = 1.0
 		} else {
 			B[i] = -1.0

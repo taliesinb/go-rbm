@@ -240,10 +240,14 @@ func main() {
 
 		weights := weightsList[0]
 
+		average := 0.0
 		for i, vec := range visibles {
 			error := CalculateError(weights, vec)
+			average += error
 			fmt.Printf("Average error of example %d: %f\n", i, error)
 		}
+		average /= float64(len(visibles))
+		fmt.Printf("Average error over all examples: %f\n", average)
 		
 	default:
 		PrintUsage()

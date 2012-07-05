@@ -33,7 +33,7 @@ func Train(M, V1 []float64, e float64) {
 		Multiply(M, V3, P3)	
 
 		for i := range M {
-			M[i] += e * V1[i % NV] * (P1[i / NV] - P3[i / NV])
+			M[i] += e * V1[i % NV] * (Logistic(P1[i / NV]) - Logistic(P3[i / NV]))
 		}
 	}
 
