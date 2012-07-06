@@ -1,81 +1,118 @@
 package rbm
 
-import (
-	"fmt"
-)
+type RBM struct {
+	W []float64       // weight matrix
+	H []float64       // hidden units
+	V []float64       // visible units
+	P1, P2 []float64  // hidden unit probabilities
+}
 
-// M rows == NH, M cols == NV
-func Train(M, V1 []float64, e float64) {
-	NV := len(V1)
-	NH := len(M) / NV
-	H1 := make([]float64, NH)
-	P1 := make([]float64, NH)
-	H2 := make([]float64, NH)
-	V2 := make([]float64, NV)
-	P3 := make([]float64, NH)
-	V3 := make([]float64, NV)
+var badSize string = "Not enough information to determine shape of matrix. Specify number of hidden and/or visible units."
 
-	for j := 0; j < 4; j++ {
-		Multiply(M, V1, P1)
-		Sample(P1, H1)
-		
-		MultiplyT(M, H1, V2)
-		Sample(V2, V2)
-		V2[NV-1] = 1.0
-		
-		Multiply(M, V2, H2)	
-		Sample(H2, H2)
+func NewMachine(numv, numh int) *RBM {
 
-		MultiplyT(M, H2, V3)
-		Sample(V3, V3)
-		V3[NV-1] = 1.0
-
-		Multiply(M, V3, P3)	
-
-		for i := range M {
-			M[i] += e * V1[i % NV] * (Logistic(P1[i / NV]) - Logistic(P3[i / NV]))
-		}
+	if numv * numh == 0 {
+		panic(badSize) 
 	}
-
-	for i := range M {
-		M[i] *= (1 - e / 16)  // weight decay
+	
+	return &RBM{
+		make([]float64, numh * numv),
+		make([]float64, numh),
+		make([]float64, numv),
+		make([]float64, numh),
+		make([]float64, numh),
 	}
 }
 
-func CalculateError(M, V1 []float64) ( err float64 ) {
-	NV := len(V1)
-	NH := len(M) / NV
-	H1 := make([]float64, NH)
-	V2 := make([]float64, NV)
-	H2 := make([]float64, NH)
-	V3 := make([]float64, NV)
+func LoadMachine(numv, numh int, path string) ( rbm *RBM ) {
 
+	if numv == 0 && numh == 0 {
+		panic(badSize)
+	}
+
+	list := ReadArrayFile(path)
+
+	if list == nil || len(list) != 1 {
+		panic("Cannot read weights from file \"" + path + "\".")
+	}
+
+	weights := list[0]
+
+	if n := numv * numh ; n != 0 && n != len(weights) {
+		panic("Shape of weight matrix inconsistent with specified number of hidden and visible units.")
+	}
+
+	if numv == 0 { numv = len(weights) / numh }
+	if numh == 0 { numh = len(weights) / numv }
+
+	rbm = NewMachine(numv, numh)
+	rbm.W = weights
+
+	return 
+}
+
+func (m *RBM) Iterate(n int, visible []float64) {
+
+	if visible != nil {
+		Transfer(m.W, visible, m.P1) // initially go up
+		Sample(m.P1, m.H)
+	}
+
+	bias := len(m.V)-1
+	for i := 0; i < n; i++ {
+
+		// go down
+		TransferT(m.W, m.H, m.V)
+		Sample(m.V, m.V)
+
+		// clamp the bias unit
+		m.V[bias] = +1
+
+		// go up
+		Transfer(m.W, m.V, m.P2)
+		Sample(m.P2, m.H)
+	}
+
+}
+
+func (m *RBM) Train(visible []float64, rate float64, decay float64) {
+
+	nv := len(m.V)
+	
+    // 4 sub-rounds
+	for j := 0; j < 4; j++ {
+
+        // markov chain
+		m.Iterate(3, visible)
+
+		// contrastive divergence
+		for i := range m.W {
+			m.W[i] += rate * visible[i % nv] * (m.P1[i / nv] - m.P2[i / nv])
+		}
+	}
+
+    // weight decay
+	if decay > 0 {
+		for i := range m.W {
+			m.W[i] *= 1 - decay
+		}
+	}
+}
+
+func (m *RBM) Error(visible []float64) ( err float64 ) {
+
+	n := len(visible)-1
 	for j := 0; j < 512; j++ {
-		Multiply(M, V1, H1)
-		Sample(H1, H1)	
-
-		MultiplyT(M, H1, V2)
-		Sample(V2, V2)
-
-		Multiply(M, V2, H2)
-		Sample(H2, H2)	
-
-		MultiplyT(M, H2, V3)
-		Sample(V3, V3)
-
-		for i := range V1 {
-			if i != len(V1)-1 && V1[i] * V3[i] < 0 { err++ }
+	
+		m.Iterate(1, visible) // 2?
+	
+		for i := 0; i < n; i++ {
+			if visible[i] * m.V[i] < 0 {
+				err++
+			}
 		}
 	}
 
 	err /= 512
 	return
-}
-
-func MtoS(X []float64) string {
-	s := ""
-	for _, x := range X {
-		s += fmt.Sprintf("%+.3f ", x)
-	}
-	return s
 }

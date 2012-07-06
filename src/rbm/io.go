@@ -221,3 +221,20 @@ func WriteArrayFile(filePath string, data [][]float64) {
 
 	WriteArray(file, path.Ext(filePath), data)
 }
+
+func LoadVectors(path string, n int, t string) ( [][]float64, int ) {
+	
+	visibles := ReadArrayFile(path)
+
+	if visibles == nil || len(visibles) <= 1 {
+		panic("Invalid or non-existent " + t + " file \"" + path + "\"")
+	}
+
+	if n == 0 {
+		n = len(visibles[0])	
+	} else if n != len(visibles[0]) {
+		panic("--num" + t + " doesn't agree with training vector shape")
+	}
+
+	return visibles, n
+}
