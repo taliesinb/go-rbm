@@ -142,11 +142,11 @@ func ReadArray(reader io.Reader, format string) (data [][]float64) {
 	switch format {
 	case ".sgn", ".flt":
 		n := ReadInt(reader)
-		sz := ReadInt(reader)
 		data = make([][]float64, 0, n)
 		fn := ReadFloats
 		if format == ".sgn" { fn = ReadSigns }
 		for i := 0; i < n; i++ {
+			sz := ReadInt(reader)
 			row := fn(reader, sz)
 			data = append(data, row)
 		}
@@ -154,14 +154,9 @@ func ReadArray(reader io.Reader, format string) (data [][]float64) {
 	case ".txt",".tsv":
 		fn := ReadTextFloats
 		if format == ".txt" { fn = ReadTextSigns }
-		sz := 0
 		for {
 			row := fn(reader)
 			if row == nil { break }
-			if sz == 0 { sz = len(row) }
-			if sz != 0 && sz != len(row) {
-				panic("Unequal lengths in table")
-			}
 			data = append(data, row)
 		}
 	}
@@ -172,14 +167,14 @@ func WriteArray(writer io.Writer, format string, data [][]float64) {
 	switch format {
 	case ".sgn":
 		WriteInt(writer, len(data))
-		WriteInt(writer, len(data[0]))
 		for i := range data {
+			WriteInt(writer, len(data[i]))
 			WriteSigns(writer, data[i])
 		}
 	case ".flt":	
 		WriteInt(writer, len(data))
-		WriteInt(writer, len(data[0]))
 		for i := range data {
+			WriteInt(writer, len(data[i]))
 			WriteFloats(writer, data[i])
 		}
 	case ".txt":

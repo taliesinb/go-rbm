@@ -1,112 +1,94 @@
 package rbm
 
 type RBM struct {
-	W []float64       // weight matrix
-	H []float64       // hidden units
-	V []float64       // visible units
-	P1, P2 []float64  // hidden unit probabilities
+	W []float64 // weight matrix
+	H []float64 // hidden units
+	V []float64 // visible units
+	P []float64 // initial hidden probs
+	Q []float64 // final hidden probs
 }
 
-var badSize string = "Not enough information to determine shape of matrix. Specify number of hidden and/or visible units."
+func NewBiased(n int) []float64 {
+	t := make([]float64, n+1)
+	t[n] = 1.0
+	return t[:n]
+}
 
-func NewMachine(numv, numh int) *RBM {
-
-	if numv * numh == 0 {
-		panic(badSize) 
-	}
+func (rbm *RBM) Init(numh, numv int) {
 	
-	return &RBM{
-		make([]float64, numh * numv),
-		make([]float64, numh),
-		make([]float64, numv),
-		make([]float64, numh),
-		make([]float64, numh),
+	if numh * numv != len(rbm.W) {
+		panic("Internal error: Bad matrix shape")
 	}
+
+	rbm.H = NewBiased(numh)
+	rbm.P = NewBiased(numh)
+	rbm.Q = NewBiased(numh)
+	rbm.V = make([]float64, numv)
 }
 
-func LoadMachine(numv, numh int, path string) ( rbm *RBM ) {
-
-	if numv == 0 && numh == 0 {
-		panic(badSize)
-	}
-
-	list := ReadArrayFile(path)
-
-	if list == nil || len(list) != 1 {
-		panic("Cannot read weights from file \"" + path + "\".")
-	}
-
-	weights := list[0]
-
-	if n := numv * numh ; n != 0 && n != len(weights) {
-		panic("Shape of weight matrix inconsistent with specified number of hidden and visible units.")
-	}
-
-	if numv == 0 { numv = len(weights) / numh }
-	if numh == 0 { numh = len(weights) / numv }
-
-	rbm = NewMachine(numv, numh)
-	rbm.W = weights
-
-	return 
-}
-
-func (m *RBM) Iterate(n int, visible []float64) {
-
-	if visible != nil {
-		Transfer(m.W, visible, m.P1) // initially go up
-		Sample(m.P1, m.H)
-	}
+func (m *RBM) Down(n int) {
 
 	bias := len(m.V)-1
-	for i := 0; i < n; i++ {
+	for ;n > 0; n-- {
+		TransferT(m.W, m.H, m.V)
+		Sample(m.V, m.V)
+		m.V[bias] = +1
 
+		Transfer(m.W, m.V, m.H)
+		Sample(m.H, m.H)
+	}
+
+	Transfer(m.W, m.H, m.V)
+	Sample(m.V, m.V)
+	m.V[bias] = +1.0
+}
+
+func (m *RBM) Up(n int, V []float64) {
+
+	Transfer(m.W, V, m.P) 
+	Sample(m.P, m.H)
+
+	bias := len(m.V)-1
+	for ;n > 0; n-- {
 		// go down
 		TransferT(m.W, m.H, m.V)
 		Sample(m.V, m.V)
-
-		// clamp the bias unit
-		m.V[bias] = +1
-
+		m.V[bias] = +1.0
+		
 		// go up
-		Transfer(m.W, m.V, m.P2)
-		Sample(m.P2, m.H)
+		Transfer(m.W, m.V, m.Q)
+		Sample(m.Q, m.H)		
 	}
-
 }
 
-func (m *RBM) Train(visible []float64, rate float64, decay float64) {
+func (m *RBM) LearnVector(visible []float64, rate float64) {
 
 	nv := len(m.V)
-	
+
+	if visible[nv-1] != 1.0 {
+		panic("NO BIAS")
+	}
+
     // 4 sub-rounds
 	for j := 0; j < 4; j++ {
 
         // markov chain
-		m.Iterate(3, visible)
+		m.Up(3, visible)
 
 		// contrastive divergence
 		for i := range m.W {
-			m.W[i] += rate * visible[i % nv] * (m.P1[i / nv] - m.P2[i / nv])
-		}
-	}
-
-    // weight decay
-	if decay > 0 {
-		for i := range m.W {
-			m.W[i] *= 1 - decay
+			m.W[i] += rate * visible[i % nv] * (m.P[i / nv] - m.Q[i / nv])
 		}
 	}
 }
 
 func (m *RBM) Error(visible []float64) ( err float64 ) {
 
-	n := len(visible)-1
 	for j := 0; j < 512; j++ {
+
+		m.Up(1, visible)
 	
-		m.Iterate(1, visible) // 2?
-	
-		for i := 0; i < n; i++ {
+		for i := range visible {
 			if visible[i] * m.V[i] < 0 {
 				err++
 			}
@@ -114,5 +96,12 @@ func (m *RBM) Error(visible []float64) ( err float64 ) {
 	}
 
 	err /= 512
+	return
+}
+
+func (m *RBM) Norm() ( norm float64 ) {
+	for _, x := range m.W {
+		norm += x * x
+	}
 	return
 }

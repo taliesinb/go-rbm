@@ -3,9 +3,10 @@ package main
 import (
 	"math/rand"
 	"flag"
-	"time"
 	"fmt"
 	"os"
+	"strings"
+	"strconv"
 )
 
 import . "rbm"
@@ -15,45 +16,39 @@ func PrintUsage() {
 	fmt.Println("Actions:")
 	fmt.Println("  train <visibles> >weights<")
 	fmt.Println("  error <visibles> <weights>")
-	fmt.Println("  sampleup    <weights> <visibles> >hiddens<")
-	fmt.Println("  sampledown  <weights> <hiddens>  >visibles<")
-	fmt.Println("  reconstruct <weights> <visibles> >visibles<")
+	fmt.Println("  sampleup    <weights> <visibles> [>hiddens<]")
+	fmt.Println("  sampledown  <weights> <hiddens>  [>visibles<]")
+	fmt.Println("  reconstruct <weights> <visibles> [>visibles<]")
 	fmt.Println("Options:")
 	flag.PrintDefaults()
 }
 
-type ProgressMeter struct {
-	start time.Time
-	last float64
-}
-
-func (pm *ProgressMeter) Print(i, N int) {
-	since := time.Since(pm.start).Seconds()
-	if since > pm.last + 1.5 {
-		pm.last = since
-		sz := 0
-		for j := i; j > 0; j >>= 1 { sz++ }
-		fmt.Printf("%02d%% complete, %s remaining, #%d\n",
-			100 * i / N,
-			time.Second * time.Duration(
-				float64(N-i) * (since/float64(i))),
-			i,
-			)
+func StringToInts(str string) (ints []int) {
+	for i, str := range strings.Split(str, ",") {
+		n, err := strconv.Atoi(str)
+		if err != nil {
+			panic(fmt.Sprintf("Couldn't convert %d'th string \"%s\" to an integer", i, str))
+		}
+		ints = append(ints, n)
 	}
+	return
 }
 
 func main() {
 
-	var numh, numv, rounds int
-	var rate, decay float64
+	var opts TrainingOptions
+	var numv int
+	var numhstr string
 	var seed int64
 	
-	flag.IntVar(&numh, "hidden", 0, "number of hidden units")
-	flag.IntVar(&numv, "visible", 0, "number of hidden units")
-	flag.IntVar(&rounds, "rounds", 1024, "number of rounds of learning or iteration")
+	flag.StringVar(&numhstr, "hidden", "", "number of hidden units (comma-separated list)")
+	flag.IntVar(&numv, "visible", 0, "number of visible units")
 	flag.Int64Var(&seed, "seed", 1, "random seed to use")
-	flag.Float64Var(&rate, "rate", 0.0001, "learning rate (log base 2)")
-	flag.Float64Var(&decay, "decay", 0.0000001, "weight decay (log base 2)")
+	flag.Float64Var(&opts.Rate, "rate", 0.0001, "learning rate")
+	flag.Float64Var(&opts.Decay, "decay", 0.0000001, "weight decay")
+	flag.IntVar(&opts.Rounds, "rounds", 1024, "number of rounds of learning or iteration")
+
+	opts.Monitor = new(StepMonitor)
 
 	flag.Parse()
 
@@ -63,9 +58,10 @@ func main() {
 	}
 
 	cmd := flag.Arg(0)
+	args := flag.Args()[1:]
 
-	switch fmt.Sprintf("%s%d", cmd, flag.NArg()) {
-	case "train2", "train3", "sampledown2", "sampleup3", "reconstruct3", "error3":
+	switch fmt.Sprintf("%s%d", cmd, len(args)) {
+	case "train2", "sampledown1", "sampleup2", "reconstruct2", "error2":
 	default:
 		fmt.Println("Invalid usage")
 		PrintUsage()
@@ -74,43 +70,64 @@ func main() {
 
 	rand.Seed(seed)
 
+	numh := StringToInts(numhstr)
+
 	switch cmd {
 	case "train":
 
-		visibles, numv := LoadVectors(flag.Arg(1), numv, "Visible")
+		visibles, numv := LoadVectors(args[0], numv, "Visible")
 
-		rbm := NewMachine(numv, numh)
-
-		fmt.Printf("Generating random %dx%d weight matrix\n", numh, numv)
-
-		RandomMatrix(rbm.W, 1.0)
-
-		fmt.Printf("Commencing %d rounds of learning\n", rounds)
-
-		prog := ProgressMeter{time.Now(), 0}
-		for i := 0; i < rounds; i++ {
-
-			// select a random learning vector and learn it
-			j := rand.Intn(len(visibles))
-			rbm.Train(visibles[j], rate, decay)
-
-			// give a progress update every second
-			if i % 512 == 0 {
-				prog.Print(i, rounds)
-			}
+		prev := numv + 1
+		for _, h := range numh {
+			fmt.Printf("Generating random %dx%d weight matrix\n", prev, h)
+			prev = h + 1
 		}
+		stack := RandomStackedRBM(numv, numh)
 
-		layers := [][]float64{rbm.W}
-		if flag.NArg() == 3 {
-			outfile := flag.Arg(2)
-			fmt.Printf("Writing weight matrix to \"%s\"\n", outfile)
-			WriteArrayFile(outfile, layers)
-			
-		} else {
-			
-			fmt.Printf("No output file specified, printing weights to stdout\n")
-			WriteArray(os.Stdout, ".tsv", layers)
+		fmt.Printf("Commencing %d rounds of learning\n", opts.Rounds)
+		stack.Train(visibles, opts)
+
+		fmt.Printf("Writing weight matrix to \"%s\"\n", args[1])
+		stack.WriteFile(args[1])
+
+		average := 0.0
+		fmt.Println("Error\tVector (Sample)")
+		for _, vis := range visibles {
+
+			error := stack.Error(vis)
+			average += error
+
+			fmt.Printf("%.2f\t", error)
+			WriteTextSigns(os.Stdout, vis)
+			fmt.Print(" (")
+			WriteTextSigns(os.Stdout, stack[0].V[:len(vis)])
+			fmt.Print(")\n")
 		}
+		average /= float64(len(visibles))
+		fmt.Printf("\nTotal average error: %f\n", average)
+
+	case "error":
+
+		visible, numv := LoadVectors(args[0], numv, "Visible")
+		rbm := LoadStackedRBM(numv, args[1])
+
+		average := 0.0
+		fmt.Println("Error\tVector (Sample)")
+		for _, vis := range visible {
+
+			error := rbm.Error(vis)
+			average += error
+
+			fmt.Printf("%.2f\t", error)
+			WriteTextSigns(os.Stdout, vis)
+			fmt.Print(" (")
+			WriteTextSigns(os.Stdout, rbm[0].V[:len(vis)])
+			fmt.Print(")\n")
+		}
+		average /= float64(len(visible))
+		fmt.Printf("\nTotal average error: %f\n", average)
+
+		/*
 
 	case "sampledown":
 
@@ -131,6 +148,24 @@ func main() {
 
 				WriteTextSigns(os.Stdout, rbm.V)
 
+				fmt.Print("\n")
+			}
+		}
+
+	case "reconstruct":
+
+		visible, numv := LoadVectors(flag.Arg(1), numv, "Visible")
+		
+		rbm := LoadMachine(numv, numh, flag.Arg(2))
+		for i, vis := range visible {
+			
+			fmt.Printf("\nSample vector %d\n", i)
+			WriteTextSigns(os.Stdout, vis)
+			fmt.Printf("\n\n")
+
+			for t := 0 ; t < 16; t++ {
+				rbm.Iterate(2, vis)
+				WriteTextSigns(os.Stdout, rbm.V)
 				fmt.Print("\n")
 			}
 		}
@@ -156,26 +191,7 @@ func main() {
 			}
 		}
 		
-	case "error":
-
-		visible, numv := LoadVectors(flag.Arg(1), numv, "Visible")
-		rbm := LoadMachine(numv, numh, flag.Arg(2))
-
-		average := 0.0
-		fmt.Println("Error\tVector (Sample)")
-		for _, vis := range visible {
-
-			error := rbm.Error(vis)
-			average += error
-
-			fmt.Printf("%.2f\t", error)
-			WriteTextSigns(os.Stdout, vis)
-			fmt.Print(" (")
-			WriteTextSigns(os.Stdout, rbm.V)
-			fmt.Print(")\n")
-		}
-		average /= float64(len(visible))
-		fmt.Printf("\nTotal average error: %f\n", average)
-		
+	}
+		*/
 	}
 }

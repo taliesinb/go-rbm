@@ -45,8 +45,10 @@ func Sample(V []float64, B []float64) {
 	}
 }
 
-func RandomMatrix(M []float64, sd float64) {
+func RandomMatrix(n int, sd float64) (M []float64) {
+	M = make([]float64, n)
 	for i := range M {
 		M[i] = rand.NormFloat64()*sd
 	}
+	return
 }
