@@ -26,16 +26,16 @@ func WriteInt(writer io.Writer, x int) {
 }
 
 
-func ReadFloats(reader io.Reader, n int) []float64 {
+func ReadFloats(reader io.Reader, n int) Vector {
 	bytes := make([]byte, n * 8)
 	reader.Read(bytes)
 	header := *(*reflect.SliceHeader)(unsafe.Pointer(&bytes))
 	header.Len /= 8
 	header.Cap /= 8
-	return *(*[]float64)(unsafe.Pointer(&header))
+	return *(*Vector)(unsafe.Pointer(&header))
 }
 
-func WriteFloats(writer io.Writer, slice []float64) {
+func WriteFloats(writer io.Writer, slice Vector) {
 	header := *(*reflect.SliceHeader)(unsafe.Pointer(&slice))
 	header.Len *= 8
 	header.Cap *= 8
@@ -43,7 +43,7 @@ func WriteFloats(writer io.Writer, slice []float64) {
 }
 
 
-func ReadSigns(reader io.Reader, n int) (slice []float64) {
+func ReadSigns(reader io.Reader, n int) (slice Vector) {
 	temp := make([]byte, (n + 7) / 8)
 	reader.Read(temp)
 	for i := range temp {
@@ -52,7 +52,7 @@ func ReadSigns(reader io.Reader, n int) (slice []float64) {
 	return
 }
 
-func WriteSigns(writer io.Writer, slice []float64) {
+func WriteSigns(writer io.Writer, slice Vector) {
 	var b byte
 	for i := range slice {
 		b <<= 1
@@ -64,7 +64,7 @@ func WriteSigns(writer io.Writer, slice []float64) {
 }
 
 
-func ReadTextSigns(reader io.Reader) (slice []float64) {
+func ReadTextSigns(reader io.Reader) (slice Vector) {
 	single := []byte{0}
 	for {
 		n, err := reader.Read(single)
@@ -73,7 +73,7 @@ func ReadTextSigns(reader io.Reader) (slice []float64) {
 		case '\n':
 			return
 		case '0':
-			slice = append(slice, -1.0)
+			slice = append(slice, zero)
 		case '1':
 			slice = append(slice, +1.0)
 		}
@@ -81,7 +81,7 @@ func ReadTextSigns(reader io.Reader) (slice []float64) {
 	return
 }
 
-func WriteTextSigns(writer io.Writer, slice []float64) {
+func WriteTextSigns(writer io.Writer, slice Vector) {
 	bytes := make([]byte, len(slice))
 	for i := range slice {
 		if slice[i] > 0.0 {
@@ -95,7 +95,7 @@ func WriteTextSigns(writer io.Writer, slice []float64) {
 
 
 // this is different from the others in that it doesn't need to know in advance how many elements are in a line
-func ReadTextFloats(reader io.Reader) (slice []float64) {
+func ReadTextFloats(reader io.Reader) (slice Vector) {
 	single := []byte{0}
 	buffer := make([]byte, 0, 64) // no float64 will be more than this
 	done := false 
@@ -126,7 +126,7 @@ func ReadTextFloats(reader io.Reader) (slice []float64) {
 }
 
 var newline []byte = []byte{'\n'}
-func WriteTextFloats(writer io.Writer, data []float64) {
+func WriteTextFloats(writer io.Writer, data Vector) {
 	for i := range data {
 		if i == 0 {
 			fmt.Fprintf(writer, "%f", data[i])
@@ -138,11 +138,11 @@ func WriteTextFloats(writer io.Writer, data []float64) {
 }
 
 
-func ReadArray(reader io.Reader, format string) (data [][]float64) {
+func ReadArray(reader io.Reader, format string) (data []Vector) {
 	switch format {
 	case ".sgn", ".flt":
 		n := ReadInt(reader)
-		data = make([][]float64, 0, n)
+		data = make([]Vector, 0, n)
 		fn := ReadFloats
 		if format == ".sgn" { fn = ReadSigns }
 		for i := 0; i < n; i++ {
@@ -163,7 +163,7 @@ func ReadArray(reader io.Reader, format string) (data [][]float64) {
 	return
 }
 
-func WriteArray(writer io.Writer, format string, data [][]float64) {
+func WriteArray(writer io.Writer, format string, data []Vector) {
 	switch format {
 	case ".sgn":
 		WriteInt(writer, len(data))
@@ -191,7 +191,7 @@ func WriteArray(writer io.Writer, format string, data [][]float64) {
 }
 
 
-func ReadArrayFile(filePath string) (data [][]float64) {
+func ReadArrayFile(filePath string) (data []Vector) {
 
 	if filePath == "" { return nil }
 
@@ -206,7 +206,7 @@ func ReadArrayFile(filePath string) (data [][]float64) {
 	return ReadArray(file, path.Ext(filePath))
 }
 
-func WriteArrayFile(filePath string, data [][]float64) {
+func WriteArrayFile(filePath string, data []Vector) {
 
 	file, err := os.Create(filePath)
 
@@ -217,7 +217,7 @@ func WriteArrayFile(filePath string, data [][]float64) {
 	WriteArray(file, path.Ext(filePath), data)
 }
 
-func LoadVectors(path string, n int, t string) ( [][]float64, int ) {
+func LoadVectors(path string, n int, t string) ( []Vector, int ) {
 	
 	visibles := ReadArrayFile(path)
 

@@ -4,7 +4,6 @@ import (
 	"math/rand"
 	"flag"
 	"fmt"
-	"os"
 	"strings"
 	"strconv"
 )
@@ -44,7 +43,7 @@ func main() {
 	flag.StringVar(&numhstr, "hidden", "", "number of hidden units (comma-separated list)")
 	flag.IntVar(&numv, "visible", 0, "number of visible units")
 	flag.Int64Var(&seed, "seed", 1, "random seed to use")
-	flag.Float64Var(&opts.Rate, "rate", 0.0001, "learning rate")
+	flag.Float64Var(&opts.Rate, "rate", 0.02, "learning rate")
 	flag.Float64Var(&opts.Decay, "decay", 0.0000001, "weight decay")
 	flag.IntVar(&opts.Rounds, "rounds", 1024, "number of rounds of learning or iteration")
 
@@ -75,57 +74,38 @@ func main() {
 	switch cmd {
 	case "train":
 
-		visibles, numv := LoadVectors(args[0], numv, "Visible")
+		visible, numv := LoadVectors(args[0], numv, "Visible")
 
+		fmt.Printf("Loaded %d training vectors of length %d\n", len(visible), numv)
+
+		W := make([]Vector, len(numh))
 		prev := numv + 1
-		for _, h := range numh {
+		for i, h := range numh {
+			W[i] = RandomMatrix(prev * h, 1.0)
 			fmt.Printf("Generating random %dx%d weight matrix\n", prev, h)
-			prev = h + 1
+			prev = h+1
 		}
-		stack := RandomStackedRBM(numv, numh)
+
+		rbm := CreateRBM(numv, W)
 
 		fmt.Printf("Commencing %d rounds of learning\n", opts.Rounds)
-		stack.Train(visibles, opts)
+		rbm.Train(visible, opts)
 
 		fmt.Printf("Writing weight matrix to \"%s\"\n", args[1])
-		stack.WriteFile(args[1])
+		rbm.WriteFile(args[1])
 
-		average := 0.0
-		fmt.Println("Error\tVector (Sample)")
-		for _, vis := range visibles {
+		error := rbm.Error(visible)
 
-			error := stack.Error(vis)
-			average += error
-
-			fmt.Printf("%.2f\t", error)
-			WriteTextSigns(os.Stdout, vis)
-			fmt.Print(" (")
-			WriteTextSigns(os.Stdout, stack[0].V[:len(vis)])
-			fmt.Print(")\n")
-		}
-		average /= float64(len(visibles))
-		fmt.Printf("\nTotal average error: %f\n", average)
+		fmt.Printf("\nTotal average error: %f\n", error)
 
 	case "error":
 
 		visible, numv := LoadVectors(args[0], numv, "Visible")
-		rbm := LoadStackedRBM(numv, args[1])
+		rbm := LoadRBM(numv, args[1])
 
-		average := 0.0
-		fmt.Println("Error\tVector (Sample)")
-		for _, vis := range visible {
+		error := rbm.Error(visible)
 
-			error := rbm.Error(vis)
-			average += error
-
-			fmt.Printf("%.2f\t", error)
-			WriteTextSigns(os.Stdout, vis)
-			fmt.Print(" (")
-			WriteTextSigns(os.Stdout, rbm[0].V[:len(vis)])
-			fmt.Print(")\n")
-		}
-		average /= float64(len(visible))
-		fmt.Printf("\nTotal average error: %f\n", average)
+		fmt.Printf("\nTotal average error: %f\n", error)
 
 		/*
 

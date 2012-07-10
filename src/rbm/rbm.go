@@ -1,107 +1,208 @@
 package rbm
 
+import (
+	"math/rand"
+	"fmt"
+)
+
+type TrainingOptions struct {
+	Rate, Decay float64
+	Rounds int
+	Monitor *StepMonitor
+}
+
 type RBM struct {
-	W []float64 // weight matrix
-	H []float64 // hidden units
-	V []float64 // visible units
-	P []float64 // initial hidden probs
-	Q []float64 // final hidden probs
+	S []int    // shape: number of units in each of the D layers
+	W []Vector // list of D weight matrices
+	U []Vector // list of D+1 unit activations
 }
 
-func NewBiased(n int) []float64 {
-	t := make([]float64, n+1)
-	t[n] = 1.0
-	return t[:n]
-}
+func CreateRBM(numv int, W []Vector) (rbm *RBM) {
 
-func (rbm *RBM) Init(numh, numv int) {
+	rbm = new(RBM)
+
+	rbm.W = W
+	rbm.S = make([]int, len(W)+1)
+	rbm.U = make([]Vector, len(W)+1)
+
+	numv++
+	rbm.U[0] = make(Vector, numv)
+	rbm.S[0] = numv
 	
-	if numh * numv != len(rbm.W) {
-		panic("Internal error: Bad matrix shape")
+	for i, w := range W {
+		numv = (len(w) / numv)
+		rbm.U[i+1] = make(Vector, numv)
+		rbm.U[i+1][numv-1] = 1.0
+		rbm.S[i+1] = numv
 	}
 
-	rbm.H = NewBiased(numh)
-	rbm.P = NewBiased(numh)
-	rbm.Q = NewBiased(numh)
-	rbm.V = make([]float64, numv)
+	return
 }
 
-func (m *RBM) Down(n int) {
+func LoadRBM(numv int, path string) (rbm *RBM) {
+	W := ReadArrayFile(path)
+	rbm = CreateRBM(numv, W)
+	return
+}
 
-	bias := len(m.V)-1
-	for ;n > 0; n-- {
-		TransferT(m.W, m.H, m.V)
-		Sample(m.V, m.V)
-		m.V[bias] = +1
+func (m *RBM) WriteFile(path string) {
+	WriteArrayFile(path, m.W) 
+}
 
-		Transfer(m.W, m.V, m.H)
-		Sample(m.H, m.H)
+func (m *RBM) Weights() (str string) {
+	depth := len(m.U)-1
+	for j := depth ; j >= 0 ; j-- {
+		if j < depth { str += "\n" }
+		str += DelBias(m.U[j]).String()
+	}
+	return
+}
+
+func (m *RBM) String() (str string) {
+	depth := len(m.U)-1
+	for j := depth ; j >= 0 ; j-- {
+		if j < depth { str += "|" }
+		str += DelBias(m.U[j]).String()
+	}
+	return
+}
+
+func (m *RBM) WeightsString() (str string) {
+	for i := range m.W {
+		str += m.W[i].MatrixString(m.S[i])
+	}
+	return
+}
+
+func (m *RBM) Reconstruct(T Vector, iters int) Vector {
+
+	copy(m.U[0], T)
+
+	d := len(m.W)
+
+	for i := 0 ; i < d ; i++ {
+		Transfer(m.W[i], m.U[i], m.U[i+1])
+		Sample(m.U[i+1], m.U[i+1])
 	}
 
-	Transfer(m.W, m.H, m.V)
-	Sample(m.V, m.V)
-	m.V[bias] = +1.0
-}
-
-func (m *RBM) Up(n int, V []float64) {
-
-	Transfer(m.W, V, m.P) 
-	Sample(m.P, m.H)
-
-	bias := len(m.V)-1
-	for ;n > 0; n-- {
-		// go down
-		TransferT(m.W, m.H, m.V)
-		Sample(m.V, m.V)
-		m.V[bias] = +1.0
+	d--
+	for k := 0 ; k < iters ; k++ {
+		TransferT(m.W[d], m.U[d+1], m.U[d])
+		Sample(m.U[d], m.U[d])
 		
-		// go up
-		Transfer(m.W, m.V, m.Q)
-		Sample(m.Q, m.H)		
+		Transfer(m.W[d], m.U[d], m.U[d+1])
+		Sample(m.U[d+1], m.U[d+1])
 	}
+	d++
+
+	for i := d; i > 0; i-- {
+		TransferT(m.W[i-1], m.U[i], m.U[i-1])
+		Sample(m.U[i-1], m.U[i-1])
+	}
+
+	return DelBias(m.U[0])
 }
 
-func (m *RBM) LearnVector(visible []float64, rate float64) {
-
-	nv := len(m.V)
-
-	if visible[nv-1] != 1.0 {
-		panic("NO BIAS")
-	}
-
-    // 4 sub-rounds
-	for j := 0; j < 4; j++ {
-
-        // markov chain
-		m.Up(3, visible)
-
-		// contrastive divergence
-		for i := range m.W {
-			m.W[i] += rate * visible[i % nv] * (m.P[i / nv] - m.Q[i / nv])
-		}
-	}
-}
-
-func (m *RBM) Error(visible []float64) ( err float64 ) {
-
-	for j := 0; j < 512; j++ {
-
-		m.Up(1, visible)
+func (m *RBM) Error(T []Vector) (totalerr float64) {
 	
-		for i := range visible {
-			if visible[i] * m.V[i] < 0 {
-				err++
+	// add bias unit to training vectors
+	B := make([]Vector, len(T))
+	for j := range T {
+		B[j] = AddBias(T[j])
+	}
+
+	for i, t := range T {
+		err := 0.0
+		r := m.Reconstruct(t, 0)
+		for j := 0 ; j < 64 ; j++ {
+			r = m.Reconstruct(t, 0)
+			err += RMSError(r, t)
+		}
+		err /= 64.0
+		fmt.Printf("%d: %s -> %s, avg err = %f\n", i, t.String(), r.String(), err)
+		totalerr += err
+	}
+	totalerr /= float64(len(T))
+	return
+}
+
+func (m *RBM) Train(T []Vector, opts TrainingOptions) {
+
+	// add bias unit to training vectors
+	B := make([]Vector, len(T))
+	for j := range T {
+		B[j] = AddBias(T[j])
+		//fmt.Printf("%s\n", B[j])
+	}
+
+
+	rate := opts.Rate
+	rounds := opts.Rounds
+	totalRounds := opts.Rounds * len(m.W)
+	
+	// train successive layers
+	for i := range m.W {
+
+		nv := m.S[i]
+		nh := m.S[i+1]
+		P := make(Vector, nh)
+		Q := make(Vector, nh)
+
+		W := m.W[i]
+		V := m.U[i]
+		H := m.U[i+1]
+
+		fmt.Printf("Training layer %d\n", i)
+
+		for r := 0 ; r < rounds ; r++ {
+
+			W2 := make(Vector, len(W))
+			
+			if r % 16 == 0 && opts.Monitor != nil {
+				if opts.Monitor.Tick(i * rounds + r, totalRounds) {
+					fmt.Printf("\t%s\n", opts.Monitor)
+				}
+			}
+			
+			// select a random training vector
+			n := rand.Intn(len(B))
+
+			for k := 0; k < 16; k++ {
+			// sample our way up to the desired layer			
+			Transfer(W, B[n], P)
+			Sample(P, H)
+
+			// sample down
+			TransferT(W, H, V)
+			Sample(V, V)
+
+			// sample up
+			Transfer(W, V, H)
+			Sample(H, H)
+
+			// sample down
+			TransferT(W, H, V)
+			Sample(V, V)
+			
+			// CD works better on probabilities, so last sample not needed
+			Transfer(W, V, Q)
+
+			// contrastive divergence
+			for i := range W {
+				W2[i] += B[n][i % nv] * (P[i / nv] - Q[i / nv])
+			}
+			}
+
+			for i := range W {
+				W[i] += rate * W2[i]
 			}
 		}
-	}
 
-	err /= 512
-	return
-}
-
-func (m *RBM) Norm() ( norm float64 ) {
-	for _, x := range m.W {
-		norm += x * x
+		// create the next layer of bias vector
+		for i := range B {
+			b2 := make(Vector, nh)
+			Transfer(W, B[i], b2)
+			B[i] = b2
+		}
 	}
-	return
 }
