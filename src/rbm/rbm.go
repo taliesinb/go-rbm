@@ -30,7 +30,7 @@ func CreateRBM(numv int, W []Vector) (rbm *RBM) {
 	rbm.S[0] = numv
 	
 	for i, w := range W {
-		numv = (len(w) / numv)
+		numv = len(w) / numv
 		rbm.U[i+1] = make(Vector, numv)
 		rbm.U[i+1][numv-1] = one
 		rbm.S[i+1] = numv
@@ -75,38 +75,42 @@ func (m *RBM) WeightsString() (str string) {
 	return
 }
 
-func (m *RBM) Reconstruct(T Vector, iters int, sample bool) Vector {
+func (m *RBM) Reconstruct(T Vector, iters int, sample bool) (R Vector) {
 
-	copy(m.U[0], T)
+	R = make(Vector, len(T))
 
 	d := len(m.W)
 
-	for i := 0 ; i < d ; i++ {
-		Transfer(m.W[i], m.U[i], m.U[i+1])
-		Sample(m.U[i+1], m.U[i+1])
-	}
-
-	d--
 	for k := 0 ; k < iters ; k++ {
-		TransferT(m.W[d], m.U[d+1], m.U[d])
-		Sample(m.U[d], m.U[d])
+
+		copy(m.U[0], T)
+		m.U[0][len(T)] = 1.0
 		
-		Transfer(m.W[d], m.U[d], m.U[d+1])
-		Sample(m.U[d+1], m.U[d+1])
-	}
-	d++
+		for i := 0 ; i < d ; i++ {
+			Transfer(m.W[i], m.U[i], m.U[i+1])
+			Sample(m.U[i+1], m.U[i+1])
+		}
 
-	for i := d; i > 0; i-- {
-		TransferT(m.W[i-1], m.U[i], m.U[i-1])
-		if i > 1 || sample { Sample(m.U[i-1], m.U[i-1]) }
+		for i := d; i > 0; i-- {
+			TransferT(m.W[i-1], m.U[i], m.U[i-1])
+			if i > 1 || sample { Sample(m.U[i-1], m.U[i-1]) }
+		}
+
+		for i := range R {
+			R[i] += m.U[0][i]
+		}
+
+	}
+	for i := range R {
+		R[i] /= float64(iters)
 	}
 
-	return DelBias(m.U[0])
+	return
 }
 
 func (m *RBM) Error(T []Vector, sample bool) (totalerr float64) {
 	
-	// add bias unit to training vectors
+	// add bias unit to traiiteravgning vectors
 	B := make([]Vector, len(T))
 	for j := range T {
 		B[j] = AddBias(T[j])
@@ -115,13 +119,13 @@ func (m *RBM) Error(T []Vector, sample bool) (totalerr float64) {
 	for i, t := range T {
 		err := 0.0
 		for j := 0 ; j < 64 ; j++ {
-			r := m.Reconstruct(t, 0, sample)
+			r := m.Reconstruct(t, 1, sample)
 			err += RMSError(r, t)
 		}
 		err /= 64.0
 		if i < 128 || i > len(T) - 128 {
 			fmt.Printf("\t%d: %s -> %s, avg err = %f\n",
-				i, t.String(), m.Reconstruct(t, 0, sample).String(), err)
+				i, t.String(), m.Reconstruct(t, 1, sample).String(), err)
 		}
 		totalerr += err
 	}
@@ -140,7 +144,7 @@ func (m *RBM) Train(T []Vector, opts TrainingOptions) {
 
 	rate := opts.Rate
 	rounds := opts.Rounds
-	totalRounds := opts.Rounds * len(m.W)
+	decay := opts.Decay
 	
 	// train successive layers
 	for i := range m.W {
@@ -154,14 +158,16 @@ func (m *RBM) Train(T []Vector, opts TrainingOptions) {
 		V := m.U[i]
 		H := m.U[i+1]
 
-		fmt.Printf("Training layer %d\n", i)
+		fmt.Printf("Training layer %d: %d visible units -> %d hidden units\n", i, len(V), len(H))
+
+		if opts.Monitor != nil {
+			opts.Monitor.Reset()
+		}
 
 		for r := 0 ; r < rounds ; r++ {
 
-			W2 := make(Vector, len(W))
-			
 			if r % 16 == 0 && opts.Monitor != nil {
-				if opts.Monitor.Tick(i * rounds + r, totalRounds) {
+				if opts.Monitor.Tick(r, rounds) {
 					fmt.Printf("\t%s\n", opts.Monitor)
 				}
 			}
@@ -169,7 +175,6 @@ func (m *RBM) Train(T []Vector, opts TrainingOptions) {
 			// select a random training vector
 			n := rand.Intn(len(B))
 
-			for k := 0; k < 16; k++ {
 			// sample our way up to the desired layer			
 			Transfer(W, B[n], P)
 			Sample(P, H)
@@ -191,18 +196,19 @@ func (m *RBM) Train(T []Vector, opts TrainingOptions) {
 
 			// contrastive divergence
 			for i := range W {
-				W2[i] += B[n][i % nv] * (P[i / nv] - Q[i / nv])
-			}
+				W[i] += rate * B[n][i % nv] * (P[i / nv] - Q[i / nv])
 			}
 
-			for i := range W {
-				W[i] += rate * W2[i]
+			if r % 32 == 0 && decay > 0 {
+				for i := range W {
+					W[i] *= 1 - decay
+				}
 			}
 		}
 
 		// create the next layer of bias vector
 		for i := range B {
-			b2 := make(Vector, nh+1)
+			b2 := make(Vector, nh)
 			Transfer(W, B[i], b2)
 			B[i] = b2
 		}

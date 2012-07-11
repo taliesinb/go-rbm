@@ -9,6 +9,11 @@ type StepMonitor struct {
 	i, n int
 }
 
+func (pm *StepMonitor) Reset() {
+	pm.start = time.Now()
+	pm.last = 0
+}
+
 func (pm *StepMonitor) Tick(i, n int) bool {
 
 	pm.i = i

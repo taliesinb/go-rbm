@@ -40,13 +40,15 @@ func main() {
 	var numhstr string
 	var seed int64
 	var sample bool
+	var iters int
 	
 	flag.StringVar(&numhstr, "hidden", "", "number of hidden units (comma-separated list)")
 	flag.IntVar(&numv, "visible", 0, "number of visible units")
 	flag.Int64Var(&seed, "seed", 1, "random seed to use")
+	flag.IntVar(&iters, "iters", 1, "how many independent reconstructions to average together")
 	flag.BoolVar(&sample, "sample", false, "whether to sample reconstructed visible probabilities")
 	flag.Float64Var(&opts.Rate, "rate", 0.02, "learning rate")
-	flag.Float64Var(&opts.Decay, "decay", 0.0000001, "weight decay")
+	flag.Float64Var(&opts.Decay, "decay", 0.001, "weight decay")
 	flag.IntVar(&opts.Rounds, "rounds", 1024, "number of rounds of learning or iteration")
 
 	opts.Monitor = new(StepMonitor)
@@ -74,7 +76,11 @@ func main() {
 
 	rand.Seed(seed)
 
-	numh := StringToInts(numhstr)
+	numh := []int{}
+
+	if numhstr != "" {
+		numh = StringToInts(numhstr)
+	}
 
 	switch cmd {
 	case "train":
@@ -86,9 +92,10 @@ func main() {
 		W := make([]Vector, len(numh))
 		prev := numv + 1
 		for i, h := range numh {
+			h++
 			W[i] = RandomMatrix(prev * h, 1.0)
 			fmt.Printf("Generating random %dx%d weight matrix\n", prev, h)
-			prev = h+1
+			prev = h
 		}
 
 		rbm := CreateRBM(numv, W)
@@ -105,16 +112,16 @@ func main() {
 		fmt.Printf("\nTotal average error: %f\n", error)
 
 	case "reconstruct":
-
-		visible, numv := LoadVectors(args[0], numv, "Visible")
-
+		
 		rbm := LoadRBM(numv, args[1])
+
+		visible, _ := LoadVectors(args[0], numv, "Visible")
 
 		fmt.Printf("Reconstructing %d vectors from '%s'\n",
 			len(visible), args[0])
 
 		for i := range visible {
-			copy(visible[i], rbm.Reconstruct(visible[i], 0, sample))
+			copy(visible[i], rbm.Reconstruct(visible[i], iters, sample))
 		}
 
 		WriteArrayFile(args[2], visible)
