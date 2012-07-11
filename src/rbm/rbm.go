@@ -32,7 +32,7 @@ func CreateRBM(numv int, W []Vector) (rbm *RBM) {
 	for i, w := range W {
 		numv = (len(w) / numv)
 		rbm.U[i+1] = make(Vector, numv)
-		rbm.U[i+1][numv-1] = 1.0
+		rbm.U[i+1][numv-1] = one
 		rbm.S[i+1] = numv
 	}
 
@@ -119,8 +119,10 @@ func (m *RBM) Error(T []Vector, sample bool) (totalerr float64) {
 			err += RMSError(r, t)
 		}
 		err /= 64.0
-		fmt.Printf("\t%d: %s -> %s, avg err = %f\n",
-			i, t.String(), m.Reconstruct(t, 0, false).String(), err)
+		if i < 128 || i > len(T) - 128 {
+			fmt.Printf("\t%d: %s -> %s, avg err = %f\n",
+				i, t.String(), m.Reconstruct(t, 0, sample).String(), err)
+		}
 		totalerr += err
 	}
 	totalerr /= float64(len(T))

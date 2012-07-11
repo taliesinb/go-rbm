@@ -70,12 +70,10 @@ func ReadTextSigns(reader io.Reader) (slice Vector) {
 		n, err := reader.Read(single)
 		if n == 0 || err == io.EOF { return }
 		switch single[0] {
-		case '\n':
-			return
-		case '0':
-			slice = append(slice, zero)
-		case '1':
-			slice = append(slice, +1.0)
+		case '\n': return
+		case '0', '-': slice = append(slice, zero)
+		case '1', '+': slice = append(slice, one)
+		case '?', '.': slice = append(slice, half)
 		}
 	}
 	return
@@ -83,11 +81,11 @@ func ReadTextSigns(reader io.Reader) (slice Vector) {
 
 func WriteTextSigns(writer io.Writer, slice Vector) {
 	bytes := make([]byte, len(slice)+1)
-	for i := range slice {
-		if slice[i] > -zero/2 {
-			bytes[i] = '1'
-		} else {
-			bytes[i] = '0'
+	for i, s := range slice {
+		switch {
+		case s > (half+ one)/2: bytes[i] = '1'
+		case s < (half+zero)/2: bytes[i] = '0'
+		default:                bytes[i] = '?'
 		}
 	}
 	bytes[len(slice)] = '\n'

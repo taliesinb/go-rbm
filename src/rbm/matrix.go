@@ -6,7 +6,9 @@ import (
 	"math/rand"
 )
 
-const zero = -1
+const zero = -1.0
+const half = (1+zero)/2
+const one = +1.0
 const bias = 1
 
 type Vector []float64
@@ -62,7 +64,7 @@ func TransferT(M, x, y Vector) {
 func Sample(V, B Vector) {
 	for i, v := range V {
 		if 2 * rand.Float64() - 1 < v {
-			B[i] = 1.0
+			B[i] = one
 		} else {
 			B[i] = zero
 		}
