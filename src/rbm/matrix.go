@@ -1,6 +1,7 @@
 package rbm
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 )
@@ -15,10 +16,20 @@ func Logistic(x float64) float64{
 	return 2.0 / (1.0 + math.Exp(-x)) - 1.0
 }
 
+func CheckShape(M, x, y Vector) {
+	if len(M) != len(x) * len(y) {
+	panic(
+		fmt.Sprintf("Shape mismatch: matrix %d can't multiple %d into %d",
+			len(M), len(x), len(y)),
+		)
+	}
+}
+
 // there is some unnecessary clamping of biases here,
 // mainly a symptom of overzealous debugging
 func Transfer(M, x, y Vector) {
 	lenx, leny := len(x), len(y)
+	//CheckShape(M, x, y)
 	for i := 0 ; i < leny ; i++ {
 		y[i] = 0
 	}
@@ -33,6 +44,7 @@ func Transfer(M, x, y Vector) {
 
 func TransferT(M, x, y Vector) {
 	lenx, leny := len(x), len(y)
+	//CheckShape(M, x, y)
 	x[lenx-1] = 0.0 // disable hidden unit bias
 	for i := range y {
 		y[i] = 0
@@ -66,14 +78,25 @@ func RandomMatrix(n int, sd float64) (M Vector) {
 	return
 }
 
+var negstr = []string{"⠁","⠙","⠹","⢹","-"}
+var posstr = []string{"⢀","⣠","⣰","⣸","+"}
+
+func BraillePattern(n int) (str string) {
+	if n == 0 { return "▫" }
+	if n > 0 {
+		if n > 4 { n = 4 }
+		str = posstr[n]
+	} else {
+		n *= -1
+		if n > 4 { n = 4 }
+		str = negstr[n]
+	}
+	return str
+}
+
 func (vec Vector) String() (str string) {
 	for _, v := range vec {
-		switch {
-		case v > 0.51: str += "+" 
-		case v < 0.49: str += "-" 
-		case v > 0:    str += "."
-		default:       str += "X"
-		}
+		str += BraillePattern(int(5 * v))
 	}
 	return
 }

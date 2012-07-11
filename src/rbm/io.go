@@ -82,14 +82,15 @@ func ReadTextSigns(reader io.Reader) (slice Vector) {
 }
 
 func WriteTextSigns(writer io.Writer, slice Vector) {
-	bytes := make([]byte, len(slice))
+	bytes := make([]byte, len(slice)+1)
 	for i := range slice {
-		if slice[i] > 0.0 {
+		if slice[i] > -zero/2 {
 			bytes[i] = '1'
 		} else {
 			bytes[i] = '0'
 		}
 	}
+	bytes[len(slice)] = '\n'
 	writer.Write(bytes)
 }
 
@@ -189,7 +190,6 @@ func WriteArray(writer io.Writer, format string, data []Vector) {
 		panic("Unknown array format \"" + format + "\"") 
 	}	
 }
-
 
 func ReadArrayFile(filePath string) (data []Vector) {
 

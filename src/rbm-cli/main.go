@@ -39,10 +39,12 @@ func main() {
 	var numv int
 	var numhstr string
 	var seed int64
+	var sample bool
 	
 	flag.StringVar(&numhstr, "hidden", "", "number of hidden units (comma-separated list)")
 	flag.IntVar(&numv, "visible", 0, "number of visible units")
 	flag.Int64Var(&seed, "seed", 1, "random seed to use")
+	flag.BoolVar(&sample, "sample", false, "whether to sample reconstructed visible probabilities")
 	flag.Float64Var(&opts.Rate, "rate", 0.02, "learning rate")
 	flag.Float64Var(&opts.Decay, "decay", 0.0000001, "weight decay")
 	flag.IntVar(&opts.Rounds, "rounds", 1024, "number of rounds of learning or iteration")
@@ -60,7 +62,10 @@ func main() {
 	args := flag.Args()[1:]
 
 	switch fmt.Sprintf("%s%d", cmd, len(args)) {
-	case "train2", "sampledown1", "sampleup2", "reconstruct2", "error2":
+	case "train2",
+		"sampledown1", "sampleup2",
+		"reconstruct3", 
+		"error2":
 	default:
 		fmt.Println("Invalid usage")
 		PrintUsage()
@@ -94,21 +99,38 @@ func main() {
 		fmt.Printf("Writing weight matrix to \"%s\"\n", args[1])
 		rbm.WriteFile(args[1])
 
-		error := rbm.Error(visible)
+		fmt.Printf("Computing reconstruction error\n")
+		error := rbm.Error(visible, sample)
 
 		fmt.Printf("\nTotal average error: %f\n", error)
+
+	case "reconstruct":
+
+		visible, numv := LoadVectors(args[0], numv, "Visible")
+
+		rbm := LoadRBM(numv, args[1])
+
+		fmt.Printf("Reconstructing %d vectors from '%s'\n",
+			len(visible), args[0])
+
+		for i := range visible {
+			copy(visible[i], rbm.Reconstruct(visible[i], 0, sample))
+		}
+
+		WriteArrayFile(args[2], visible)
+		fmt.Printf("Wrote reconstructions to '%s'\n", args[2])
 
 	case "error":
 
 		visible, numv := LoadVectors(args[0], numv, "Visible")
+		
 		rbm := LoadRBM(numv, args[1])
 
-		error := rbm.Error(visible)
+		error := rbm.Error(visible, sample)
 
 		fmt.Printf("\nTotal average error: %f\n", error)
 
 		/*
-
 	case "sampledown":
 
 		rbm := LoadMachine(numv, numh, flag.Arg(1))

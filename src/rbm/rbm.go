@@ -42,6 +42,7 @@ func CreateRBM(numv int, W []Vector) (rbm *RBM) {
 func LoadRBM(numv int, path string) (rbm *RBM) {
 	W := ReadArrayFile(path)
 	rbm = CreateRBM(numv, W)
+	fmt.Printf("Loaded RBM of shape %v\n", rbm.S)
 	return
 }
 
@@ -74,7 +75,7 @@ func (m *RBM) WeightsString() (str string) {
 	return
 }
 
-func (m *RBM) Reconstruct(T Vector, iters int) Vector {
+func (m *RBM) Reconstruct(T Vector, iters int, sample bool) Vector {
 
 	copy(m.U[0], T)
 
@@ -97,13 +98,13 @@ func (m *RBM) Reconstruct(T Vector, iters int) Vector {
 
 	for i := d; i > 0; i-- {
 		TransferT(m.W[i-1], m.U[i], m.U[i-1])
-		Sample(m.U[i-1], m.U[i-1])
+		if i > 1 || sample { Sample(m.U[i-1], m.U[i-1]) }
 	}
 
 	return DelBias(m.U[0])
 }
 
-func (m *RBM) Error(T []Vector) (totalerr float64) {
+func (m *RBM) Error(T []Vector, sample bool) (totalerr float64) {
 	
 	// add bias unit to training vectors
 	B := make([]Vector, len(T))
@@ -113,13 +114,13 @@ func (m *RBM) Error(T []Vector) (totalerr float64) {
 
 	for i, t := range T {
 		err := 0.0
-		r := m.Reconstruct(t, 0)
 		for j := 0 ; j < 64 ; j++ {
-			r = m.Reconstruct(t, 0)
+			r := m.Reconstruct(t, 0, sample)
 			err += RMSError(r, t)
 		}
 		err /= 64.0
-		fmt.Printf("%d: %s -> %s, avg err = %f\n", i, t.String(), r.String(), err)
+		fmt.Printf("\t%d: %s -> %s, avg err = %f\n",
+			i, t.String(), m.Reconstruct(t, 0, false).String(), err)
 		totalerr += err
 	}
 	totalerr /= float64(len(T))
@@ -134,7 +135,6 @@ func (m *RBM) Train(T []Vector, opts TrainingOptions) {
 		B[j] = AddBias(T[j])
 		//fmt.Printf("%s\n", B[j])
 	}
-
 
 	rate := opts.Rate
 	rounds := opts.Rounds
@@ -200,7 +200,7 @@ func (m *RBM) Train(T []Vector, opts TrainingOptions) {
 
 		// create the next layer of bias vector
 		for i := range B {
-			b2 := make(Vector, nh)
+			b2 := make(Vector, nh+1)
 			Transfer(W, B[i], b2)
 			B[i] = b2
 		}
